@@ -46,9 +46,17 @@ class InvertedResidual(nn.Module):
 
         oup_inc = oup//2
         
+        """
+        benchmodel = 1:
+        pointwise 1*1, depthwise 3*3, pointwise 1*1, Relu
+
+        benchmodel = 2:
+        depthwise 3*3, pointwise 1*1 ReLU
+        pointwise 1*1, depthwise 3*3, pointwise 1*1, Relu
+        """
         if self.benchmodel == 1:
             #assert inp == oup_inc
-        	self.banch2 = nn.Sequential(
+            self.banch2 = nn.Sequential(
                 # pw
                 nn.Conv2d(oup_inc, oup_inc, 1, 1, 0, bias=False),
                 nn.BatchNorm2d(oup_inc),
@@ -127,31 +135,44 @@ class ShuffleNetV2(nn.Module):
         # building first layer
         input_channel = self.stage_out_channels[1]
         self.conv1 = conv_bn(3, input_channel, 2)    
-	self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         
         self.features = []
-        # building inverted residual blocks
+        """
+        building inverted residual blocks:
+        因为stage_repeats的值是4,8,4,所以意味着每个InvertedResidual block重复4次，8次，4次
+
+        每个InvertedResidual block的构造:
+        1. 第一个block，stride=2
+                benchmodel = 2:
+                depthwise 3*3 stride为2, pointwise 1*1 ReLU
+                pointwise 1*1, depthwise 3*3 stride为2, pointwise 1*1, Relu
+
+                
+        2. 剩余的block，stride=1
+                benchmodel = 1:
+                pointwise 1*1, depthwise 3*3 stride为1, pointwise 1*1, Relu
+        """
         for idxstage in range(len(self.stage_repeats)):
             numrepeat = self.stage_repeats[idxstage]
             output_channel = self.stage_out_channels[idxstage+2]
             for i in range(numrepeat):
                 if i == 0:
-	            #inp, oup, stride, benchmodel):
+                #inp, oup, stride, benchmodel):
                     self.features.append(InvertedResidual(input_channel, output_channel, 2, 2))
                 else:
                     self.features.append(InvertedResidual(input_channel, output_channel, 1, 1))
                 input_channel = output_channel
-                
                 
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
 
         # building last several layers
         self.conv_last      = conv_1x1_bn(input_channel, self.stage_out_channels[-1])
-	self.globalpool = nn.Sequential(nn.AvgPool2d(int(input_size/32)))              
+        self.globalpool = nn.Sequential(nn.AvgPool2d(int(input_size/32)))              
     
-	# building classifier
-	self.classifier = nn.Sequential(nn.Linear(self.stage_out_channels[-1], n_class))
+        # building classifier
+        self.classifier = nn.Sequential(nn.Linear(self.stage_out_channels[-1], n_class))
 
     def forward(self, x):
         x = self.conv1(x)
